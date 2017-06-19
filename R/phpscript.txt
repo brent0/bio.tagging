@@ -1,0 +1,262 @@
+
+
+
+function myUrlEncode($string) {
+  $entities = array('%21', '%2A', '%27', '%28', '%29', '%3B', '%3A', '%40', '%26', '%3D', '%2B', '%24', '%2C', '%2F', '%3F', '%25', '%23', '%5B', '%5D', '%C2%B0');
+  $replacements = array('!', '*', "'", "(", ")", ";", ":", "@", "%26", "%3D", "+", "$", ",", "/", "?", "%", "#", "[", "]", "");
+  return str_replace($entities, $replacements, $string);
+}
+function conpos($string) {
+  
+  if(substr($string, 3, 1) == '.'){
+    $string = substr($string, 0, 2).'0'.substr($string, 2, strlen($string)-2);
+  }
+  
+  
+  $de = intval(substr($string, 0, 2)); 
+  
+  
+  $min = intval(substr($string, 2, 2));
+  $dmin = intval(substr($string, 5, 2))/100;
+  $dm = ($min + $dmin)/60;
+  $nu = $de + $dm; 
+  return $nu;
+}
+
+$myfile = fopen("test.txt", "w") or die("Unable to open file!");
+
+
+
+
+
+$conn = oci_connect('Snowcrab', 'opilio99', 'ptran');
+// Check connection
+if (!$conn) {
+  echo json_encode("Connection failed: " . oci_error());
+}
+
+$samp = $_POST['samp'];
+
+$samp = myUrlEncode($samp);
+
+
+$samp = explode("&", $samp);
+$rc1 = "";
+$dat = "";
+$sam = "";
+$ves = "";
+$cfa = "";
+$capt = "";
+$dep = "";
+$com = "";
+$lat = "";
+$lon = "";
+
+foreach ($samp as $value) {
+  
+  $sa = explode("=", $value);
+  
+  
+  if($sa[0] == "radio-choice-1")
+    $rc1 = $sa[1];
+  if($sa[0] == "date")
+    $dat = $sa[1];
+  if($sa[0] == "samp")
+    $sam = $sa[1];
+  if($sa[0] == "ves")
+    $ves = $sa[1];
+  if($sa[0] == "cfa")
+    $cfa = $sa[1];
+  if($sa[0] == "capt")
+    $capt = $sa[1];
+  if($sa[0] == "dep")
+    $dep = $sa[1];
+  if($sa[0] == "com")
+    $com = $sa[1];
+  if($sa[0] == "lat")
+    $lat = $sa[1];
+  if($sa[0] == "lon")
+    $lon = $sa[1];
+  
+}
+
+$sam = str_replace('+',' ',$sam); 
+$com = str_replace('+',' ',$com); 
+$capt = str_replace('+',' ',$capt); 
+$ves = str_replace('+',' ',$ves); 
+$lat = str_replace('N','',$lat); 
+$lon = str_replace('W','',$lon); 
+
+$rlat = strval(conpos($lat));
+$rlon = strval(conpos($lon)*-1);
+
+$df =  explode("/", $dat);
+$year = $df[2];
+$mon = $df[0];
+$day = $df[1];
+$dat = $day."/".$mon."/".$year;
+
+$sta = "";
+$res = "";
+$samp = "";
+$sampsql = "";
+$out = "";
+$wrisamp = FALSE;
+//////////////////////////////////////////
+  //Check if sample num exists, if so get sample num
+// else get num row of sample
+
+
+$sql = "SELECT TRIP_ID from SCT_TRIP where DMY = '" . $dat . "' AND TECHNICIAN = '" . $sam . "'";
+$result = oci_query($conn, $sql);
+$exis = oci_num_rows($result);
+
+if ($exis > 0){
+  $row=oci_fetch_array($result,MYSQLI_ASSOC);
+  $res = $row["trip_id"];
+}
+
+if ($exis == 0) {            
+  
+  $sql = "select trip_id from trip";
+  $result = oci_query($conn, $sql);
+  $res = oci_num_rows($result) + 1 ;
+  
+  
+  
+  if($cfa == "xxxx") $sta = "4X";
+  if($cfa == "nens") $sta = "NENS";
+  if($cfa == "23") $sta = "SENS";
+  if($cfa == "24") $sta = "SENS";  
+  if($cfa == "gulf") $sta = "GULF";  				 
+  $suba = "";
+  if($sta == "NENS") $suba =  "(all)(ens)(nens)(nens_gulf)(allandgulf)";
+  if($sta == "SENS"){
+    if($cfa == "23")
+      $suba =  "(cfa23)(all)(ens)(sens)(allandgulf)(cfa23zoom)(cfa24zoom)(all.holes)";
+    if($cfa == "24")
+      $suba =  "(cfa24)(all)(ens)(sens)(allandgulf)(cfa24zoom)(cfa24zoom)(all.holes)";
+  }
+  if($sta == "4X") $suba =  "(all)(ens)(cfa4x)(allandgulf)";
+  if($sta == "GULF") $suba =  "(allandgulf)";
+  
+  $sql = "INSERT INTO TRIP VALUES( '".$res."' , '".$sam."' , '".$ves."' , '".$cfa."' , '".$dat."' , '".$year."' , '". $sta ."' , 0 , '".$capt ."' , '" . $suba . "')";
+  fwrite($myfile, $sql);
+  if (oci_query($conn, $sql)){
+    $out =  $out. "\nNew Trip ".$res." Successfully Added.";
+  }
+  else{
+    $out =  $out."\nError: " . $sql . "\n" . oci_error($conn);
+    echo json_encode($out);
+    die();
+  }
+  
+}
+
+
+$sql = "SELECT sample_id FROM sample where trip = '".$res."' AND lat_DD_DDDD = '".$rlat."' AND long_DD_DDDD = '".$rlon."'";
+$result = oci_query($conn, $sql);
+$exis = oci_num_rows($result);
+
+if ($exis > 0){
+  $row=oci_fetch_array($result,OCI_ASSOC);
+  $samp = $row["sample_id"];
+  fwrite($myfile, $sql);
+}
+if ($exis == 0) {   
+  $sql = "select sample_id from sample";
+  $result = oci_query($conn, $sql);
+  $samp = oci_num_rows($result) + 1 ;
+  
+  $sampsql = "INSERT INTO SAMPLE VALUES( '".$samp."' , '".$res."' , '".$lat."' , '".$lon."'  ,  '".$rlat."' , '".$rlon."' , '".$dep."' , '".$com."')";
+  $wrisamp = TRUE;
+  
+}
+
+
+
+
+$array = $_POST['data'];
+$resultStrings = array();
+$i = 0;
+$b = "";
+$writedata = TRUE;
+
+foreach ($array as $key => $values) {
+  if($i > 0){
+    if($values[0] != $b){
+      $sql = "SELECT tag_id FROM bio where tag_id = '".$values[0]."'";
+      
+      
+      $result = oci_query($conn, $sql);
+      
+      if (oci_num_rows($result) > 0) {
+        
+        $row = oci_fetch_assoc($result);
+        $out = $out. "\nCrab with tag " . $row["tag_id"]. " has already been added!! ";
+        $writedata = FALSE;
+        
+      } 
+      
+    }
+  }
+  $i = $i + 1;
+}		
+
+
+if($writedata){
+  $i = 0;
+  foreach ($array as $key => $values) {
+    if($i > 0){
+      if($values[0] != $b){
+        $sql = "INSERT INTO SCT_BIO VALUES ('".$samp."', '".$values[0]."', '".$values[1]."', '".$values[2]."','".$values[3]."','".$values[4]."')";
+        
+        if (oci_query($conn, $sql)) {
+          $out =  $out. "\nCrab with tag ".$values[0]." successfully added";
+        } else {
+          $out =  $out."\nError: " . $sql . "\n" . oci_error($conn);
+          echo json_encode($out);
+          die();
+        }
+      }
+    }
+    $i = ++$i;
+  }
+  if($wrisamp){
+    
+    if(oci_query($conn, $sampsql)){
+      $out = $out."\nSample from trip ".$res. " with pos ". $lat. " " .$lon. " successfully added";
+    }
+    else{
+      $out =  $out."\nError: " . $sampsql . "\n" . oci_error($conn). "\n";
+      echo json_encode($out);
+      die();
+    }
+    
+  }
+}
+
+$out =  $out."\n\n";
+
+
+
+
+
+/*
+  $ans = $_GET['radio-choice-2'];
+
+$ret = "3";
+if ($ans == "choice-1") {          
+  $ret = "1";      
+  
+}
+if ($ans == "choice-2") {          
+  $ret = "2";      
+}
+*/
+  
+  fclose($myfile);
+oci_close($conn);
+
+echo json_encode($out);
+
